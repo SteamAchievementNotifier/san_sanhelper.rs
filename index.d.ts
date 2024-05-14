@@ -9,3 +9,5 @@ export interface AppInfo {
   gamename: string
 }
 export function getAppInfo(): Array<AppInfo>
+export function pressKey(key: number): void
+export function depsInstalled(): boolean

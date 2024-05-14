@@ -295,7 +295,9 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { getSteamPath, getAppInfo } = nativeBinding
+const { getSteamPath, getAppInfo, pressKey, depsInstalled } = nativeBinding
 
 module.exports.getSteamPath = getSteamPath
 module.exports.getAppInfo = getAppInfo
+module.exports.pressKey = pressKey
+module.exports.depsInstalled = depsInstalled

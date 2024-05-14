@@ -1,5 +1,6 @@
 
 use napi_derive::napi;
+use keypressrs;
 
 #[cfg(target_os="windows")]
 pub mod win32 {
@@ -8,30 +9,72 @@ pub mod win32 {
 }
 
 #[cfg(target_os="linux")]
+pub mod linux {
+    pub use std::{str,path::Path,process::Command,fs::{File,metadata},io::Read};
+    pub use dirs::home_dir;
+    pub use keyvalues_parser::{Vdf,Value};
+}
+
+#[cfg(target_os="linux")]
+fn get_key_value(value: &keyvalues_parser::Value, key: &str) -> Option<String> {
+    use linux::Value;
+
+    match value {
+        Value::Obj(obj) => {
+            for (k, v) in obj.iter() {
+                for item in v {
+                    if k.to_lowercase() == key.to_lowercase() {
+                        if let Value::Str(val) = item {
+                            return Some(val.clone().to_string());
+                        }
+                    } else {
+                        if let Some(result) = get_key_value(item, key) {
+                            return Some(result);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+
+    None
+}
+
+#[cfg(target_os="linux")]
+fn read_vdf(vdf: String,key: &str) -> String {
+    use linux::{File,Read,Vdf};
+
+    let mut contents = String::new();
+
+    let _file = File::open(&vdf)
+        .expect(&format!("Failed to open \"{}\"",vdf))
+        .read_to_string(&mut contents)
+        .expect(&format!("Failed to read \"{}\"",vdf));
+
+    let parsed = Vdf::parse(&contents)
+        .expect(&format!("Failed to parse contents of \"{}\"",vdf));
+
+    if let Some(value) = Some(parsed.value) {
+        if let Some(result) = get_key_value(&value, key) {
+            return result;
+        }
+    }
+
+    "".to_string()
+}
+
+#[cfg(target_os="linux")]
 pub fn get_linux_steam_path() -> String {
-    use std::fs;
-    use dirs::home_dir;
+    use linux::home_dir;
 
     if let Some(home) = home_dir() {
-        let dirs = [
-            home.join(".local/share"),
-            home.join(".steam"),
-            home.join(".var/apps/com.valvesoftware.Steam/.steam"),
-            home.join(".var/snapd/snaps/.steam")
-        ];
+        let steam_dir = home.join(".steam");
+        let registry_vdf = steam_dir.join("registry.vdf");
 
-        for dir in dirs.iter() {
-            if let Ok(metadata) = fs::metadata(dir) {
-                if metadata.is_dir() {
-                    return Some(dir.join("Steam").to_string_lossy().to_string()).unwrap()
-                } else {
-                    eprintln!("\"{}\" exists, but is not a directory",dir.display());
-                }
-            } else {
-                eprintln!("\"{}\" does not exist",dir.display());
-            };
-        }
-    };
+        return read_vdf(registry_vdf.to_string_lossy().into_owned(),"SourceModInstallPath")
+            .replace("/steamapps\\sourcemods","")
+    }
 
     "".to_string()
 }
@@ -39,7 +82,7 @@ pub fn get_linux_steam_path() -> String {
 #[napi]
 pub fn get_steam_path() -> String {
     #[cfg(target_os="windows")] {
-        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH};
+        use win32::*;
 
         return RegKey::predef(HKEY_CURRENT_USER)
             .open_subkey(STEAMREGPATH)
@@ -72,7 +115,7 @@ pub fn get_app_info() -> Vec<AppInfo> {
     let mut gamename: String = "".to_string();
 
     #[cfg(target_os="windows")] {
-        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH};
+        use win32::*;
 
         appid = RegKey::predef(HKEY_CURRENT_USER)
             .open_subkey(STEAMREGPATH)
@@ -90,8 +133,7 @@ pub fn get_app_info() -> Vec<AppInfo> {
     }
 
     #[cfg(target_os="linux")] {
-        use std::{str,process::Command,fs::File,io::Read};
-        use keyvalues_parser;
+        use linux::{str,Command,File,Read};
 
         let output = Command::new("sh")
             .arg("-c")
@@ -126,23 +168,7 @@ pub fn get_app_info() -> Vec<AppInfo> {
                     .to_string_lossy()
                     .into_owned();
 
-                let mut contents = String::new();
-                let _file = File::open(&acf)
-                    .expect(&format!("Failed to open \"{}\"",acf))
-                    .read_to_string(&mut contents)
-                    .expect(&format!("Failed to read \"{}\"",acf));
-
-                let parsed = keyvalues_parser::Vdf::parse(&contents)
-                    .expect(&format!("Failed to parse contents of \"{}\"",acf));
-
-                if let Some(values) = parsed.value.unwrap_obj().get("name") {
-                    for value in values {
-                        if let keyvalues_parser::Value::Str(name) = value {
-                            gamename = name.to_string();
-                            break;
-                        }
-                    }
-                }
+                gamename = read_vdf(acf,"name");
             }
         }
     }
@@ -157,4 +183,14 @@ pub fn get_app_info() -> Vec<AppInfo> {
     });
 
     appinfo
+}
+
+#[napi]
+pub fn press_key(key: u16) {
+    keypressrs::simulate_keypress(key);
+}
+
+#[napi]
+pub fn deps_installed() -> bool {
+    keypressrs::deps_installed()
 }
