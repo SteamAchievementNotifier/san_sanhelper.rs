@@ -121,19 +121,19 @@ pub fn get_app_info() -> Vec<AppInfo> {
             .open_subkey(STEAMREGPATH)
             .expect(&format!("Failed to open registry key \"{}\"",STEAMREGPATH))
             .get_value("RunningAppID")
-            .expect(&format!("Failed to get RunningAppID value from \"{}\"",STEAMREGPATH));
+            .unwrap_or_default();
 
         if appid != 0 {
             gamename = RegKey::predef(HKEY_CURRENT_USER)
                 .open_subkey(format!("{}\\Apps\\{}",STEAMREGPATH,appid))
                 .expect(&format!("Failed to open registry key \"{}\\Apps\\{}\"",STEAMREGPATH,appid))
                 .get_value("Name")
-                .expect(&format!("Failed to get Name value from \"{}\\Apps\\{}\"",STEAMREGPATH,appid));
+                .unwrap_or_default();
         }
     }
 
     #[cfg(target_os="linux")] {
-        use linux::{str,Command,File,Read};
+        use linux::{str,Command,Path};
 
         let output = Command::new("sh")
             .arg("-c")
@@ -162,7 +162,7 @@ pub fn get_app_info() -> Vec<AppInfo> {
 
             if appid != 0 {
                 let steam_path = get_linux_steam_path();
-                let acf = std::path::Path::new(&steam_path)
+                let acf = Path::new(&steam_path)
                     .join("steamapps")
                     .join(format!("appmanifest_{}.acf",appid))
                     .to_string_lossy()
