@@ -1,23 +1,28 @@
 
 use napi_derive::napi;
 use keypressrs;
+extern crate log as extern_log;
+use extern_log::error;
+pub mod log;
 
 #[cfg(target_os="windows")]
 pub mod win32 {
-    pub use winreg::{RegKey,enums::HKEY_CURRENT_USER};
+    pub use winreg::{RegKey,enums::{HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE}};
     pub const STEAMREGPATH: &str = "SOFTWARE\\Valve\\Steam";
+    pub const UNINSTALLPATH: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App";
 }
 
 #[cfg(target_os="linux")]
 pub mod linux {
     pub use std::{str,path::Path,process::Command,fs::{File,metadata},io::Read};
-    pub use dirs::home_dir;
+    pub use dirs::{home_dir,data_local_dir};
     pub use keyvalues_parser::{Vdf,Value};
 }
 
 #[cfg(target_os="linux")]
-fn get_key_value(value: &keyvalues_parser::Value, key: &str) -> Option<String> {
+fn get_key_values(value: &keyvalues_parser::Value, key: &str, all: bool) -> Vec<String> {
     use linux::Value;
+    let mut res = Vec::new();
 
     match value {
         Value::Obj(obj) => {
@@ -25,11 +30,15 @@ fn get_key_value(value: &keyvalues_parser::Value, key: &str) -> Option<String> {
                 for item in v {
                     if k.to_lowercase() == key.to_lowercase() {
                         if let Value::Str(val) = item {
-                            return Some(val.clone().to_string());
+                            res.push(val.clone().to_string());
+                            if !all {
+                                return res;
+                            }
                         }
                     } else {
-                        if let Some(result) = get_key_value(item, key) {
-                            return Some(result);
+                        res.extend(get_key_values(item, key, all));
+                        if !all && !res.is_empty() {
+                            return res;
                         }
                     }
                 }
@@ -38,30 +47,37 @@ fn get_key_value(value: &keyvalues_parser::Value, key: &str) -> Option<String> {
         _ => {}
     }
 
-    None
+    res
 }
 
 #[cfg(target_os="linux")]
-fn read_vdf(vdf: String,key: &str) -> String {
-    use linux::{File,Read,Vdf};
+fn read_vdf(vdf: String, key: &str, all: bool) -> Vec<String> {
+    use linux::{File, Read, Vdf};
 
     let mut contents = String::new();
 
-    let _file = File::open(&vdf)
-        .expect(&format!("Failed to open \"{}\"",vdf))
-        .read_to_string(&mut contents)
-        .expect(&format!("Failed to read \"{}\"",vdf));
-
-    let parsed = Vdf::parse(&contents)
-        .expect(&format!("Failed to parse contents of \"{}\"",vdf));
-
-    if let Some(value) = Some(parsed.value) {
-        if let Some(result) = get_key_value(&value, key) {
-            return result;
+    let mut file = match File::open(&vdf) {
+        Ok(file) => file,
+        Err(err) => {
+            error!("Failed to open \"{}\": {}",vdf,err);
+            return Vec::new();
         }
+    };
+
+    if let Err(err) = file.read_to_string(&mut contents) {
+        error!("Failed to read \"{}\": {}",vdf,err);
+        return Vec::new();
     }
 
-    "".to_string()
+    let parsed = match Vdf::parse(&contents) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            error!("Failed to parse contents of \"{}\": {}",vdf,err);
+            return Vec::new();
+        }
+    };
+
+    get_key_values(&parsed.value,key,all)
 }
 
 #[cfg(target_os="linux")]
@@ -72,23 +88,33 @@ pub fn get_linux_steam_path() -> String {
         let steam_dir = home.join(".steam");
         let registry_vdf = steam_dir.join("registry.vdf");
 
-        return read_vdf(registry_vdf.to_string_lossy().into_owned(),"SourceModInstallPath")
+        return read_vdf(
+                registry_vdf
+                .to_string_lossy()
+                .into_owned(),
+                "SourceModInstallPath",
+                false
+            )
+            .join("")
             .replace("/steamapps\\sourcemods","")
     }
 
     "".to_string()
 }
 
+#[allow(unreachable_code)]
 #[napi]
 pub fn get_steam_path() -> String {
     #[cfg(target_os="windows")] {
-        use win32::*;
+        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH};
 
-        return RegKey::predef(HKEY_CURRENT_USER)
-            .open_subkey(STEAMREGPATH)
-            .expect(&format!("Failed to open registry key \"{}\"",STEAMREGPATH))
-            .get_value("SteamPath")
-            .expect(&format!("Failed to get SteamPath value from \"{}\"",STEAMREGPATH))
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        match hkcu.open_subkey(STEAMREGPATH) {
+            Ok(regkey) => return regkey
+                .get_value("SteamPath")
+                .unwrap_or_else(|_| "".to_string()),
+            Err(err) => error!("Failed to open subkey \"{}\": {}",STEAMREGPATH,err)
+        }
     }
 
     #[cfg(target_os="linux")] {
@@ -96,9 +122,10 @@ pub fn get_steam_path() -> String {
     }
 
     #[cfg(not(any(target_os="windows",target_os="linux")))] {
-        eprintln!("Unsupported OS");
-        return "".to_string()
+        error!("Unsupported OS");
     }
+
+    "".to_string()
 }
 
 #[napi(object)]
@@ -115,66 +142,96 @@ pub fn get_app_info() -> Vec<AppInfo> {
     let mut gamename: String = "".to_string();
 
     #[cfg(target_os="windows")] {
-        use win32::*;
+        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH};
 
-        appid = RegKey::predef(HKEY_CURRENT_USER)
-            .open_subkey(STEAMREGPATH)
-            .expect(&format!("Failed to open registry key \"{}\"",STEAMREGPATH))
-            .get_value("RunningAppID")
-            .unwrap_or_default();
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        appid = match hkcu.open_subkey(STEAMREGPATH) {
+            Ok(regkey) => regkey
+                .get_value("RunningAppID")
+                .unwrap_or_else(|_| 0),
+            Err(err) => {
+                error!("Failed to open subkey \"{}\": {}",STEAMREGPATH,err);
+                0
+            }
+        };
 
         if appid != 0 {
-            gamename = RegKey::predef(HKEY_CURRENT_USER)
-                .open_subkey(format!("{}\\Apps\\{}",STEAMREGPATH,appid))
-                .expect(&format!("Failed to open registry key \"{}\\Apps\\{}\"",STEAMREGPATH,appid))
-                .get_value("Name")
-                .unwrap_or_default();
+            gamename = match hkcu.open_subkey(format!("{}\\Apps\\{}",STEAMREGPATH,appid)) {
+                Ok(regkey) => regkey
+                    .get_value("Name")
+                    .unwrap_or_else(|_| "".to_string()),
+                Err(err) => {
+                    error!("Failed to open subkey \"{}\": {}",STEAMREGPATH,err);
+                    "".to_string()
+                }
+            }
         }
     }
 
     #[cfg(target_os="linux")] {
         use linux::{str,Command,Path};
 
-        let output = Command::new("sh")
+        let cmd = Command::new("sh")
             .arg("-c")
             .arg("ps aux | grep -v 'grep' | grep -i 'AppID'")
-            .output()
-            .expect("Failed to execute command");
+            .output();
 
-        let stdout = str::from_utf8(&output.stdout).expect("Failed to parse stdout: Invalid UTF-8");
+        match cmd {
+            Ok(output) => {
+                let res = str::from_utf8(&output.stdout);
 
-        if !stdout.is_empty() {
-            for line in stdout.lines() {
-                if let Some(arg_str) = line.split("AppId=").nth(1) {
-                    if let Some(end_idx) = arg_str.find(char::is_whitespace) {
-                        if let Ok(parsed_appid) = arg_str[..end_idx].trim().parse::<u32>() {
-                            appid = parsed_appid;
-                            break;
+                match res {
+                    Ok(stdout) => {
+                        if !stdout.is_empty() {
+                            for line in stdout.lines() {
+                                if let Some(arg_str) = line.split("AppId=").nth(1) {
+                                    if let Some(end_idx) = arg_str.find(char::is_whitespace) {
+                                        if let Ok(parsed_appid) = arg_str[..end_idx].trim().parse::<u32>() {
+                                            appid = parsed_appid;
+                                            break;
+                                        }
+                                    } else {
+                                        if let Ok(parsed_appid) = arg_str.trim().parse::<u32>() {
+                                            appid = parsed_appid;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                
+                            if appid != 0 {
+                                let steam_path = get_linux_steam_path();
+                                let lib_folders = Path::new(&steam_path)
+                                    .join("steamapps")
+                                    .join("libraryfolders.vdf")
+                                    .to_string_lossy()
+                                    .into_owned();
+
+                                let lib_paths = read_vdf(lib_folders,"path",true);
+                                for lib_path in lib_paths {
+                                    let acf = Path::new(&lib_path)
+                                        .join("steamapps")
+                                        .join(format!("appmanifest_{}.acf",appid));
+
+                                    if acf.exists() {
+                                        gamename = read_vdf(acf.to_string_lossy().into_owned(),"name",false).join("");
+                                        break;
+                                    } else {
+                                        error!("Failed to locate \"appmanifest_{}.acf\" in \"{}\"",appid,lib_path);
+                                    }
+                                }
+                            }
                         }
-                    } else {
-                        if let Ok(parsed_appid) = arg_str.trim().parse::<u32>() {
-                            appid = parsed_appid;
-                            break;
-                        }
-                    }
+                    },
+                    Err(err) => error!("Failed to parse \"res\": {}",err)
                 }
-            }
-
-            if appid != 0 {
-                let steam_path = get_linux_steam_path();
-                let acf = Path::new(&steam_path)
-                    .join("steamapps")
-                    .join(format!("appmanifest_{}.acf",appid))
-                    .to_string_lossy()
-                    .into_owned();
-
-                gamename = read_vdf(acf,"name");
-            }
+            },
+            Err(err) => error!("Failed to execute \"psaux\" command: {}",err)
         }
     }
     
     #[cfg(not(any(target_os="windows",target_os="linux")))] {
-        eprintln!("Unsupported OS");
+        error!("Unsupported OS");
     }
 
     appinfo.push(AppInfo {
@@ -193,4 +250,62 @@ pub fn press_key(key: u16) {
 #[napi]
 pub fn deps_installed() -> bool {
     keypressrs::deps_installed()
+}
+
+#[napi]
+pub fn get_hq_icon(appid: u32) -> String {
+    #[cfg(target_os="windows")] {
+        use win32::{RegKey,HKEY_LOCAL_MACHINE,UNINSTALLPATH};
+
+        let appdir = format!("{} {}",UNINSTALLPATH,appid);
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+
+        match hklm.open_subkey(appdir) {
+            Ok(regkey) => return regkey
+                .get_value("DisplayIcon")
+                .unwrap_or_else(|_| "".to_string()),
+            Err(err) => error!("Failed to get \"DisplayIcon\": {}",err)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use linux::data_local_dir;
+
+        let resolutions = [
+            "256x256",
+            "128x128",
+            "64x64",
+            "32x32",
+            "24x24",
+            "16x16"
+        ];
+
+        if let Some(share) = data_local_dir() {
+            let base_dir = share
+                .join("icons")
+                .join("hicolor");
+
+            if base_dir.exists() {
+                for res in &resolutions {
+                    let icon_path = base_dir
+                        .join(res)
+                        .join("apps")
+                        .join(format!("steam_icon_{}.png",appid));
+
+                    if icon_path.exists() {
+                        return icon_path.to_string_lossy().to_string();
+                    } else {
+                        error!("Failed to locate \"{:?}\" in \"{:?}\"",icon_path,base_dir);
+                    }
+                }
+            } else {
+                error!("Failed to locate \"{:?}\"",base_dir);
+            }
+        } else {
+            error!("Failed to locate \"homedir\"");
+        }
+    }
+
+    "".to_string()
 }
