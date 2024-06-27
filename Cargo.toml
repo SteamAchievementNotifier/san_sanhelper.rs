@@ -15,6 +15,7 @@ keypressrs = { path = "../keypress.rs" }
 fern = "0.6.2"
 log = "0.4.21"
 chrono = "0.4.38"
+screenshots = { git = "https://github.com/SteamAchievementNotifier/xcap.git" }
 
 [target.'cfg(target_os="windows")'.dependencies]
 winreg = "0.52"

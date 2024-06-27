@@ -2,7 +2,7 @@
 use napi_derive::napi;
 use keypressrs;
 extern crate log as extern_log;
-use extern_log::error;
+use extern_log::{info,error};
 pub mod log;
 
 #[cfg(target_os="windows")]
@@ -248,8 +248,14 @@ pub fn press_key(key: u16) {
 }
 
 #[napi]
-pub fn deps_installed() -> bool {
-    keypressrs::deps_installed()
+pub fn deps_installed(lib: String) -> bool {
+    if lib == "keypressrs" {
+        return keypressrs::deps_installed()
+    } else if lib == "hdr" {
+        return hdr_deps()
+    }
+
+    true
 }
 
 #[napi]
@@ -308,4 +314,90 @@ pub fn get_hq_icon(appid: u32) -> String {
     }
 
     "".to_string()
+}
+
+fn hdr_deps() -> bool {
+    #[cfg(target_os="linux")] {
+        use linux::*;
+
+        let deps = vec![
+            "libxcb1",
+            "libxrandr2",
+            "libdbus-1-3"
+        ];
+
+        for dep in deps {
+            let installed = Command::new("sh")
+                .args(["-c",&format!("which {}",dep)])
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+
+            if !installed {
+                error!("\"{}\" not installed",dep);
+                return false
+            }
+        }
+    }
+
+    true
+}
+
+fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String) -> String {
+    let capture = screen.capture();
+
+    match capture {
+        Ok(img) => {
+            let save = img.save(&sspath);
+
+            if let Err(err) = save {
+                error!("Failed to save image: {}",err);
+                return format!("Failed to save image: {}",err)
+            }
+
+            info!("\"{}\" saved successfully",&sspath);
+            return format!("\"{}\" saved successfully",&sspath)
+        },
+        Err(err) => {
+            error!("Failed to capture screen: {}",err);
+            return format!("Failed to capture screen: {}",err)
+        }
+    }
+}
+
+#[napi]
+pub fn hdr_screenshot(monitor_id: u32,sspath: String) -> String {
+    use screenshots::Screen;
+
+    let screens = Screen::all();
+
+    match screens {
+        Ok(screens) => {
+            let mut primary = None;
+            
+            for screen in screens {
+                if screen.display_info.id == monitor_id {
+                    info!("\"screen.display_info.id\" ({}) matched to \"monitor_id\" ({}) successfully",screen.display_info.id,monitor_id);
+
+                    return capture_hdr_screenshot(screen,sspath);
+                }
+
+                if screen.display_info.is_primary {
+                    primary = Some(screen.clone());
+                }
+            }
+
+            if let Some(p_screen) = primary {
+                error!("No match found for \"monitor_id\" ({}) - fallback to primary monitor",monitor_id);
+                return capture_hdr_screenshot(p_screen,sspath)
+            } else {
+                error!("Failed to locate screen matching \"monitor_id\" ({}), and no primary monitor located",monitor_id);
+                format!("Failed to locate screen matching \"monitor_id\" ({}), and no primary monitor located",monitor_id)
+            }
+        }
+        Err(err) => {
+            error!("Failed to parse monitor list: {}",err);
+            format!("Failed to parse monitor list: {}",err)
+        }
+    }
 }
