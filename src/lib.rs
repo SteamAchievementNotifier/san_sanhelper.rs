@@ -248,17 +248,6 @@ pub fn press_key(key: u16) {
 }
 
 #[napi]
-pub fn deps_installed(lib: String) -> bool {
-    if lib == "keypressrs" {
-        return keypressrs::deps_installed()
-    } else if lib == "hdr" {
-        return hdr_deps()
-    }
-
-    true
-}
-
-#[napi]
 pub fn get_hq_icon(appid: u32) -> String {
     #[cfg(target_os="windows")] {
         use win32::{RegKey,HKEY_LOCAL_MACHINE,UNINSTALLPATH};
@@ -316,7 +305,20 @@ pub fn get_hq_icon(appid: u32) -> String {
     "".to_string()
 }
 
-fn hdr_deps() -> bool {
+#[napi]
+pub fn deps_installed(lib: String) -> String {
+    if lib == "keypressrs" {
+        if !keypressrs::deps_installed() {
+            return "xdotool".to_string();
+        };
+    } else if lib == "hdr" {
+        return hdr_deps();
+    }
+
+    "".to_string()
+}
+
+fn hdr_deps() -> String {
     #[cfg(target_os="linux")] {
         use linux::*;
 
@@ -335,12 +337,12 @@ fn hdr_deps() -> bool {
 
             if !installed {
                 error!("\"{}\" not installed",dep);
-                return false
+                return dep.to_string()
             }
         }
     }
 
-    true
+    "".to_string()
 }
 
 fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String) -> String {
