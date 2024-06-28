@@ -323,14 +323,14 @@ fn hdr_deps() -> String {
         use linux::*;
 
         let deps = vec![
-            "libxcb1",
-            "libxrandr2",
-            "libdbus-1-3"
+            "libxcb.so",
+            "libXrandr.so",
+            "libdbus-1.so"
         ];
 
         for dep in deps {
             let installed = Command::new("sh")
-                .args(["-c",&format!("which {}",dep)])
+                .args(["-c",&format!("ldconfig -p | grep {}",dep)])
                 .output()
                 .map(|output| output.status.success())
                 .unwrap_or(false);
@@ -345,6 +345,7 @@ fn hdr_deps() -> String {
     "".to_string()
 }
 
+// Note: Requires `sudo apt install libxcb-xfixes0-dev` to compile on Linux
 fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String) -> String {
     let capture = screen.capture();
 
