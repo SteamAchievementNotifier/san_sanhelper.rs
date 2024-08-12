@@ -173,7 +173,7 @@ pub fn get_app_info() -> Vec<AppInfo> {
 
         let cmd = Command::new("sh")
             .arg("-c")
-            .arg("ps aux | grep -v 'grep' | grep -i 'AppID'")
+            .arg("ps ax | grep -Ev 'grep|Install' | grep -i 'AppID'")
             .output();
 
         match cmd {
