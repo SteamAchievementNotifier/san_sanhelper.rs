@@ -404,3 +404,13 @@ pub fn hdr_screenshot(monitor_id: u32,sspath: String) -> String {
         }
     }
 }
+
+#[napi]
+pub fn get_focused_win_path() -> String {
+    use active_win_pos_rs::get_active_window;
+
+    match get_active_window() {
+        Ok(win) => win.process_path.to_string_lossy().to_string(),
+        Err(_) => "".to_string()
+    }
+}
