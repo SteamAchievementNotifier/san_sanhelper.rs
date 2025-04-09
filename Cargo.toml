@@ -18,12 +18,17 @@ chrono = "0.4.38"
 screenshots = { git = "https://github.com/SteamAchievementNotifier/xcap.git" }
 active-win-pos-rs = "0.8"
 
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(noop)','cfg(used_linker)'] }
+
 [target.'cfg(target_os="windows")'.dependencies]
 winreg = "0.52"
+windows = { version="0.61.1", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os="linux")'.dependencies]
 dirs = "5.0"
 keyvalues-parser = "0.2.0"
+x11 = "2.21.0"
 
 [build-dependencies]
 napi-build = "2.0.1"

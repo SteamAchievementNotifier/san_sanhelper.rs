@@ -1,9 +1,13 @@
+#[cfg(target_os = "linux")]
+#[link(name = "X11")]
+extern "C" {}
 
 use napi_derive::napi;
 use keypressrs;
 extern crate log as extern_log;
 use extern_log::{info,error};
 pub mod log;
+pub mod wininfo;
 
 #[cfg(target_os="windows")]
 pub mod win32 {
@@ -433,4 +437,29 @@ fn wmctrl_deps() -> String {
     }
 
     "".to_string()
+}
+
+#[napi(object)]
+pub struct WinBounds {
+    pub width: u32,
+    pub height: u32,
+    pub x: i32,
+    pub y: i32
+}
+
+#[napi]
+pub fn get_window_bounds(windowtitle: String) -> WinBounds {
+    use wininfo::wininfo::get_window_bounds;
+
+    let (x,y,width,height) = match get_window_bounds(&windowtitle) {
+        Some((x,y,width,height)) => (x,y,width,height),
+        None => (0,0,0,0)
+    };
+
+    WinBounds {
+        width,
+        height,
+        x,
+        y
+    }
 }
