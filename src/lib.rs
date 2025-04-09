@@ -313,6 +313,8 @@ pub fn deps_installed(lib: String) -> String {
         };
     } else if lib == "hdr" {
         return hdr_deps();
+    } else if lib == "wmctrl" {
+        return wmctrl_deps();
     }
 
     "".to_string()
@@ -413,4 +415,22 @@ pub fn get_focused_win_path() -> String {
         Ok(win) => win.process_path.to_string_lossy().to_string(),
         Err(_) => "".to_string()
     }
+}
+
+fn wmctrl_deps() -> String {
+    #[cfg(target_os="linux")] {
+        use linux::*;
+        
+        let installed = Command::new("sh")
+            .args(["-c","which wmctrl"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+        if !installed {
+            return "wmctrl".to_string()
+        }
+    }
+
+    "".to_string()
 }
