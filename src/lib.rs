@@ -352,8 +352,12 @@ fn hdr_deps() -> String {
 }
 
 // Note: Requires `sudo apt install libxcb-xfixes0-dev` to compile on Linux
-fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String) -> String {
-    let capture = screen.capture();
+fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String,area: Option<(u32,u32,u32,u32)>) -> String {
+    // Order of elements for `screen.capture_area()` is y/x/w/h
+    let capture = match area {
+        Some((y,x,w,h)) => screen.capture_area(y as i32,x as i32,w,h),
+        None => screen.capture()
+    };
 
     match capture {
         Ok(img) => {
@@ -375,7 +379,7 @@ fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String) -> String 
 }
 
 #[napi]
-pub fn hdr_screenshot(monitor_id: u32,sspath: String) -> String {
+pub fn hdr_screenshot(monitor_id: u32,sspath: String,area: Option<(u32,u32,u32,u32)>) -> String {
     use screenshots::Screen;
 
     let screens = Screen::all();
@@ -388,7 +392,7 @@ pub fn hdr_screenshot(monitor_id: u32,sspath: String) -> String {
                 if screen.display_info.id == monitor_id {
                     info!("\"screen.display_info.id\" ({}) matched to \"monitor_id\" ({}) successfully",screen.display_info.id,monitor_id);
 
-                    return capture_hdr_screenshot(screen,sspath);
+                    return capture_hdr_screenshot(screen,sspath,area);
                 }
 
                 if screen.display_info.is_primary {
@@ -398,7 +402,7 @@ pub fn hdr_screenshot(monitor_id: u32,sspath: String) -> String {
 
             if let Some(p_screen) = primary {
                 error!("No match found for \"monitor_id\" ({}) - fallback to primary monitor",monitor_id);
-                return capture_hdr_screenshot(p_screen,sspath)
+                return capture_hdr_screenshot(p_screen,sspath,area)
             } else {
                 error!("Failed to locate screen matching \"monitor_id\" ({}), and no primary monitor located",monitor_id);
                 format!("Failed to locate screen matching \"monitor_id\" ({}), and no primary monitor located",monitor_id)
