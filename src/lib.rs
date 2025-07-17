@@ -247,8 +247,8 @@ pub fn get_app_info() -> Vec<AppInfo> {
 }
 
 #[napi]
-pub fn press_key(key: u16) {
-    keypressrs::simulate_keypress(key);
+pub fn press_key(keys: Vec<u16>) {
+    keypressrs::simulate_keypress(keys);
 }
 
 #[napi]
