@@ -246,9 +246,20 @@ pub fn get_app_info() -> Vec<AppInfo> {
     appinfo
 }
 
+#[allow(unused_variables)]
 #[napi]
-pub fn press_key(keys: Vec<u16>) {
-    keypressrs::simulate_keypress(keys);
+pub fn press_keys_win32(keys: Vec<u16>) {
+    #[cfg(target_os="windows")] {
+        keypressrs::simulate_keypress_win32(keys);
+    }
+}
+
+#[allow(unused_variables)]
+#[napi]
+pub fn press_keys_linux(keys: Vec<String>) {
+    #[cfg(target_os="linux")] {
+        keypressrs::simulate_keypress_linux(keys);
+    }
 }
 
 #[napi]
