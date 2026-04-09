@@ -2,7 +2,7 @@
 edition = "2021"
 name = "sanhelperrs"
 author="Jackson0ne"
-version = "0.0.4"
+version = "0.0.5"
 
 [lib]
 crate-type = ["cdylib"]
@@ -17,6 +17,7 @@ log = "0.4.21"
 chrono = "0.4.38"
 screenshots = { git = "https://github.com/SteamAchievementNotifier/xcap.git" }
 active-win-pos-rs = "0.8"
+display-info = "0.5.9" # Use latest version instead of `san_display-info` for extended properties 
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(noop)','cfg(used_linker)'] }

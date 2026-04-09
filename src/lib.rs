@@ -478,3 +478,45 @@ pub fn get_window_bounds(windowtitle: String) -> WinBounds {
         y
     }
 }
+
+#[napi(object)]
+pub struct Bounds {
+    pub width: u32,
+    pub height: u32
+}
+
+#[napi(object)]
+pub struct DisplayObject {
+    pub id: u32,
+    pub label: String,
+    pub primary: bool,
+    pub bounds: Bounds,
+    pub scale_factor: f64,
+    pub rotation: f64,
+    pub frequency: f64
+}
+
+#[napi]
+pub fn get_all_displays() -> napi::Result<Vec<DisplayObject>> {
+    use display_info;
+
+    let info = display_info::DisplayInfo::all()
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+    Ok(info
+        .into_iter()
+        .map(|obj|DisplayObject {
+            id: obj.id,
+            label: obj.friendly_name,
+            primary: obj.is_primary,
+            bounds: Bounds {
+                width: obj.width,
+                height: obj.height
+            },
+            scale_factor: obj.scale_factor as f64,
+            rotation: obj.rotation as f64,
+            frequency: obj.frequency as f64
+        })
+        .collect()
+    )
+}
