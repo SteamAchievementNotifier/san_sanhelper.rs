@@ -8,12 +8,15 @@ extern crate log as extern_log;
 use extern_log::{info,error};
 pub mod log;
 pub mod wininfo;
+pub mod mc;
 
 #[cfg(target_os="windows")]
 pub mod win32 {
     pub use winreg::{RegKey,enums::{HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE}};
     pub const STEAMREGPATH: &str = "SOFTWARE\\Valve\\Steam";
     pub const UNINSTALLPATH: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App";
+    pub use std::os::windows::process::CommandExt;
+    pub const CREATENOWINDOW: u32 = 0x08000000;
 }
 
 #[cfg(target_os="linux")]
@@ -519,4 +522,132 @@ pub fn get_all_displays() -> napi::Result<Vec<DisplayObject>> {
         })
         .collect()
     )
+}
+
+#[napi(object)]
+pub struct MCProcessInfo {
+    pub pid: u32,
+    pub exe: String,
+    pub cmdline: String,
+    pub username: Option<String>,
+    pub version: Option<String>,
+    pub gamedir: Option<String>,
+    pub uuid: Option<String>,
+    pub versiontype: Option<String>,
+    pub quickplaypath: Option<String>
+}
+
+#[cfg(target_os="windows")]
+#[napi]
+pub fn get_mc_process() -> Vec<MCProcessInfo> {
+    use std::process::Command;
+    use serde_json::{from_str,Value,Error};
+
+    let mut processes = Vec::new();
+    let exes = vec!["javaw.exe"];
+
+    let output: std::process::Output;
+    let cmd = if cfg!(target_os="windows") {
+        "Get-CimInstance Win32_Process | Select ProcessName, ProcessId, ExecutablePath, CommandLine | ConvertTo-Json"
+    } else {
+        "Unsupported platform"
+    };
+
+    #[cfg(target_os="windows")] {
+        use win32::{CommandExt,CREATENOWINDOW};
+
+        output = Command::new("powershell")
+            .creation_flags(CREATENOWINDOW)
+            .args(["-Command",cmd])
+            .output()
+            .expect("Failed to run process list command");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let json: Result<Value,Error>;
+
+    #[cfg(target_os="windows")] {
+        json = from_str(&stdout);
+    }
+
+    for exename in exes {
+        match &json {
+            Ok(value) => {
+                let stdoutprocesses = value
+                    .as_array()
+                    .expect("\"json\" is not an array")
+                    .iter()
+                    .filter(|p| {
+                        if let Some(pname) = p["ProcessName"].as_str() {
+                            exename.to_lowercase() == pname.to_lowercase()
+                        } else {
+                            false
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                for process in stdoutprocesses {
+                    let pid = if cfg!(target_os="windows") {
+                        process["ProcessId"]
+                            .as_u64()
+                            .unwrap_or(0) as u32
+                    } else {
+                        process["ProcessId"]
+                            .as_str()
+                            .unwrap_or("0")
+                            .parse::<u32>()
+                            .unwrap_or(0) as u32
+                    };
+
+                    let exe = process["ExecutablePath"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+
+                    let cmdline = process["CommandLine"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+
+                    let args = mc::mc::get_cmdline_values(&cmdline);
+                    let username = args.get("username").cloned();
+                    let version = args.get("version").cloned();
+                    let gamedir = args.get("gameDir").cloned();
+                    let uuid = args.get("uuid").cloned();
+                    let versiontype = args.get("versionType").cloned();
+                    let quickplaypath = args.get("quickPlayPath").cloned();
+
+                    info!(
+                        "ProcessName: {}, ProcessId: {}, ExecutablePath: {}, CommandLine: {}, Username: {}, Version: {}, GameDir: {}, UUID: {}, VersionType: {}, QuickPlayPath: {}",
+                        exename,
+                        pid,
+                        exe,
+                        cmdline,
+                        username.clone().unwrap_or("".to_string()),
+                        version.clone().unwrap_or("".to_string()),
+                        gamedir.clone().unwrap_or("".to_string()),
+                        uuid.clone().unwrap_or("".to_string()),
+                        versiontype.clone().unwrap_or("".to_string()),
+                        quickplaypath.clone().unwrap_or("".to_string())
+                    );
+
+                    processes.push(MCProcessInfo {
+                        pid,
+                        exe,
+                        cmdline,
+                        username,
+                        version,
+                        gamedir,
+                        uuid,
+                        versiontype,
+                        quickplaypath
+                    });
+                }
+            }
+            Err(err) => error!("No running process found for {}: {}",exename,err),
+        }
+    }
+
+    processes
 }
