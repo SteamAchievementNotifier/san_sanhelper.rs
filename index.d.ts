@@ -36,6 +36,12 @@ export interface DisplayObject {
   frequency: number
 }
 export function getAllDisplays(): Array<DisplayObject>
+export interface JsMonitorInfo {
+  electronDisplayId: number
+  label: string
+  edid?: Array<number>
+}
+export function findElectronDisplay(id: number): JsMonitorInfo | null
 export namespace log {
   export function initLogger(appData: string): string
   export function testPanic(): void

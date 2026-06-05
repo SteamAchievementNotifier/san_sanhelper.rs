@@ -8,6 +8,7 @@ extern crate log as extern_log;
 use extern_log::{info,error};
 pub mod log;
 pub mod wininfo;
+pub use electron_display_resolver::{get_monitors,utils::MonitorInfo};
 
 #[cfg(target_os="windows")]
 pub mod win32 {
@@ -519,4 +520,25 @@ pub fn get_all_displays() -> napi::Result<Vec<DisplayObject>> {
         })
         .collect()
     )
+}
+
+#[napi(object)]
+pub struct JSMonitorInfo {
+    pub electron_display_id: u32,
+    pub label: String,
+    pub edid: Option<Vec<u8>>
+}
+
+#[napi]
+pub fn find_electron_display(id: u32) -> Option<JSMonitorInfo> {
+    get_monitors()
+        .ok()?
+        .iter()
+        .find(|monitor| monitor.electron_display_id == id)
+        .cloned()
+        .map(|monitor| JSMonitorInfo {
+            electron_display_id: monitor.electron_display_id,
+            label: monitor.label,
+            edid: monitor.edid,
+        })
 }
