@@ -365,6 +365,13 @@ fn hdr_deps() -> String {
 
 // Note: Requires `sudo apt install libxcb-xfixes0-dev` to compile on Linux
 fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String,area: Option<(u32,u32,u32,u32)>) -> String {
+    let mode = if let Some(values) = area {
+        info!("Area: {:#?}",values);
+        "window"
+    } else {
+        "screen"
+    };
+
     // Order of elements for `screen.capture_area()` is y/x/w/h
     let capture = match area {
         Some((y,x,w,h)) => screen.capture_area(y as i32,x as i32,w,h),
@@ -376,16 +383,15 @@ fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String,area: Optio
             let save = img.save(&sspath);
 
             if let Err(err) = save {
-                error!("Failed to save image: {}",err);
-                return format!("Failed to save image: {}",err)
+                error!("Failed to save HDR Mode {} image: {}",mode,err);
+                return format!("Failed to save HDR Mode {} image: {}",mode,err)
             }
 
-            info!("\"{}\" saved successfully",&sspath);
-            return format!("\"{}\" saved successfully",&sspath)
+            return format!("HDR Mode {} image \"{}\" saved successfully",mode,&sspath)
         },
         Err(err) => {
-            error!("Failed to capture screen: {}",err);
-            return format!("Failed to capture screen: {}",err)
+            error!("Failed to capture {}: {}",mode,err);
+            return format!("Failed to capture {}: {}",mode,err)
         }
     }
 }
@@ -394,6 +400,14 @@ fn capture_hdr_screenshot(screen: screenshots::Screen,sspath: String,area: Optio
 pub fn hdr_screenshot(monitor_id: u32,sspath: String,area: Option<(u32,u32,u32,u32)>) -> String {
     use screenshots::Screen;
 
+    let screenshots_displayinfo_id = get_monitors()
+        .ok()
+        .and_then(|monitors| monitors
+            .into_iter()
+            .find(|monitor| monitor.electron_display_id == monitor_id)
+            .map(|monitor| monitor.screenshots_displayinfo_id)
+        );
+
     let screens = Screen::all();
 
     match screens {
@@ -401,9 +415,8 @@ pub fn hdr_screenshot(monitor_id: u32,sspath: String,area: Option<(u32,u32,u32,u
             let mut primary = None;
             
             for screen in screens {
-                if screen.display_info.id == monitor_id {
-                    info!("\"screen.display_info.id\" ({}) matched to \"monitor_id\" ({}) successfully",screen.display_info.id,monitor_id);
-
+                if screenshots_displayinfo_id.is_some_and(|id| screen.display_info.id == id) {
+                    info!("\"screen.display_info.id\" ({}) matched to \"monitor_id\" (electron_display_id: {} | screenshots_displayinfo_id: {}) successfully",screen.display_info.id,monitor_id,screenshots_displayinfo_id.unwrap_or(0));
                     return capture_hdr_screenshot(screen,sspath,area);
                 }
 
@@ -412,9 +425,9 @@ pub fn hdr_screenshot(monitor_id: u32,sspath: String,area: Option<(u32,u32,u32,u
                 }
             }
 
-            if let Some(p_screen) = primary {
+            if let Some(primary_screen) = primary {
                 error!("No match found for \"monitor_id\" ({}) - fallback to primary monitor",monitor_id);
-                return capture_hdr_screenshot(p_screen,sspath,area)
+                return capture_hdr_screenshot(primary_screen,sspath,area)
             } else {
                 error!("Failed to locate screen matching \"monitor_id\" ({}), and no primary monitor located",monitor_id);
                 format!("Failed to locate screen matching \"monitor_id\" ({}), and no primary monitor located",monitor_id)
@@ -525,6 +538,7 @@ pub fn get_all_displays() -> napi::Result<Vec<DisplayObject>> {
 #[napi(object)]
 pub struct JSMonitorInfo {
     pub electron_display_id: u32,
+    pub screenshots_displayinfo_id: u32,
     pub label: String,
     pub edid: Option<Vec<u8>>
 }
@@ -538,6 +552,7 @@ pub fn find_electron_display(id: u32) -> Option<JSMonitorInfo> {
         .cloned()
         .map(|monitor| JSMonitorInfo {
             electron_display_id: monitor.electron_display_id,
+            screenshots_displayinfo_id: monitor.screenshots_displayinfo_id,
             label: monitor.label,
             edid: monitor.edid,
         })
