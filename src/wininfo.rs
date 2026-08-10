@@ -1,12 +1,13 @@
 pub mod wininfo {
     pub fn get_window_bounds(windowtitle: &str) -> Option<(i32,i32,u32,u32)> {
         #[cfg(target_os = "windows")] {
-            use windows::{core::PCSTR,Win32::{UI::WindowsAndMessaging::{GetWindowRect,FindWindowA},Foundation::{RECT,HWND}}};
-            use std::{ptr::null_mut,ffi::CString};
-        
+            use windows::{core::PCWSTR,Win32::{UI::WindowsAndMessaging::{GetWindowRect,FindWindowW},Foundation::{RECT,HWND}}};
+            use std::ptr::null_mut;
+
             unsafe {
-                let hwnd: HWND = FindWindowA(None, PCSTR(CString::new(windowtitle).ok()?.as_ptr() as *const u8)).unwrap_or(HWND(null_mut()));
-                
+                let wide: Vec<u16> = windowtitle.encode_utf16().chain(std::iter::once(0)).collect();
+                let hwnd: HWND = FindWindowW(None,PCWSTR(wide.as_ptr())).unwrap_or(HWND(null_mut()));
+
                 if hwnd.0 == null_mut() {
                     return None;
                 }
