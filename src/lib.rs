@@ -133,6 +133,24 @@ pub fn get_steam_path() -> String {
     "".to_string()
 }
 
+#[napi]
+pub fn get_steam_active_user() -> Option<u32> {
+    #[cfg(target_os="windows")] {
+        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH};
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        match hkcu.open_subkey(format!("{}\\ActiveProcess",STEAMREGPATH)) {
+            Ok(regkey) => return regkey
+                .get_value::<u32,_>("ActiveUser")
+                .ok()
+                .filter(|&id| id != 0),
+            Err(err) => error!("Failed to open subkey \"{}\\ActiveProcess\\ActiveUser\": {}",STEAMREGPATH,err)
+        }
+    }
+
+    return None
+}
+
 #[napi(object)]
 pub struct AppInfo {
     pub appid: u32,

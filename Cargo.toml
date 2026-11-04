@@ -2,7 +2,7 @@
 edition = "2021"
 name = "sanhelperrs"
 author="Jackson0ne"
-version = "0.0.9"
+version = "0.0.10"
 
 [lib]
 crate-type = ["cdylib"]
