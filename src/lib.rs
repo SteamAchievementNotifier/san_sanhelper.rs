@@ -468,6 +468,40 @@ pub fn get_focused_win_path() -> String {
     }
 }
 
+#[napi(object)]
+pub struct FocusedWin {
+    pub title: String,
+    pub path: String,
+    pub pid: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32
+}
+
+#[napi]
+pub fn get_focused_win() -> Option<FocusedWin> {
+    use active_win_pos_rs::get_active_window;
+
+    let win = match get_active_window() {
+        Ok(win) => win,
+        Err(_) => {
+            error!("Failed to get focused window");
+            return None
+        }
+    };
+
+    Some(FocusedWin {
+        title: win.title,
+        path: win.process_path.to_string_lossy().to_string(),
+        pid: win.process_id as u32,
+        x: win.position.x as i32,
+        y: win.position.y as i32,
+        width: win.position.width.max(0.0) as u32,
+        height: win.position.height.max(0.0) as u32
+    })
+}
+
 fn wmctrl_deps() -> String {
     #[cfg(target_os="linux")] {
         use linux::*;
