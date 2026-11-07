@@ -15,6 +15,10 @@ pub mod win32 {
     pub use winreg::{RegKey,enums::{HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE}};
     pub const STEAMREGPATH: &str = "SOFTWARE\\Valve\\Steam";
     pub const UNINSTALLPATH: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App";
+    pub const EALAUNCHERAPPID: u32 = 1182480;
+    pub const EALAUNCHEREXE: &str = "EASteamLauncher.exe";
+    use std::sync::Mutex;
+    pub static PROCESSCACHE: Mutex<Option<(sysinfo::Pid,u32)>> = Mutex::new(None);
 }
 
 #[cfg(target_os="linux")]
@@ -151,6 +155,66 @@ pub fn get_steam_active_user() -> Option<u32> {
     return None
 }
 
+#[cfg(target_os="windows")]
+fn parse_launch_args(arg: &str) -> Option<u32> {
+    let str = arg.strip_prefix("steam2ea://launchgame/")?;
+    str.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
+}
+
+#[cfg(target_os="windows")]
+fn get_ea_launcher_appid() -> Option<u32> {
+    use sysinfo::{System,ProcessesToUpdate,ProcessRefreshKind,UpdateKind};
+    use win32::{EALAUNCHEREXE,PROCESSCACHE};
+
+    let mut sys = match System::new() {
+        Ok(sys) => sys,
+        Err(err) => {
+            error!("Failed to initialise \"sysinfo\": {}",err);
+            return None;
+        }
+    };
+
+    let mut cache = PROCESSCACHE.lock().ok()?;
+
+    // Check cache for EASteamLauncher PID/AppID, instead of enumerating all processes each time
+    if let Some((pid,appid)) = *cache {
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing()
+        );
+
+        if sys.process(pid).is_some_and(|p| p.name().eq_ignore_ascii_case(EALAUNCHEREXE)) {
+            return Some(appid);
+        }
+
+        *cache = None;
+    }
+
+    // Full process scan when there is no valid cached launcher process
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always)
+    );
+
+    let process: Option<(sysinfo::Pid, u32)> = sys.processes().iter()
+        .filter(|(_,p)| p.name().eq_ignore_ascii_case(EALAUNCHEREXE))
+        .find_map(|(pid,p)| {
+            p.cmd().iter()
+                .find_map(|a| parse_launch_args(&a.to_string_lossy()))
+                .map(|appid| (*pid,appid))
+        });
+
+    *cache = process;
+
+    if let Some((pid,appid)) = process {
+        info!("{} process ({}) detected - AppID {} parsed from command line",EALAUNCHEREXE,pid,appid);
+    }
+    
+    process.map(|(_,appid)| appid)
+}
+
 #[napi(object)]
 pub struct AppInfo {
     pub appid: u32,
@@ -165,9 +229,10 @@ pub fn get_app_info() -> Vec<AppInfo> {
     let mut gamename: String = "".to_string();
 
     #[cfg(target_os="windows")] {
-        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH};
+        use win32::{RegKey,HKEY_CURRENT_USER,STEAMREGPATH,EALAUNCHERAPPID,PROCESSCACHE};
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        
         appid = match hkcu.open_subkey(STEAMREGPATH) {
             Ok(regkey) => regkey
                 .get_value("RunningAppID")
@@ -177,6 +242,14 @@ pub fn get_app_info() -> Vec<AppInfo> {
                 0
             }
         };
+
+        if appid == EALAUNCHERAPPID {
+            if let Some(gameappid) = get_ea_launcher_appid() {
+                appid = gameappid;
+            }
+        } else if let Ok(mut cache) = PROCESSCACHE.lock() {
+            *cache = None;
+        }
 
         if appid != 0 {
             gamename = match hkcu.open_subkey(format!("{}\\Apps\\{}",STEAMREGPATH,appid)) {

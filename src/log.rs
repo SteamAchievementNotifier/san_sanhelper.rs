@@ -3,8 +3,8 @@ use napi_derive::napi;
 #[napi]
 pub mod log {
     #[napi]
-    pub fn init_logger(app_data: String) -> String {
-        logrs::init_logger(app_data,"sanhelper.log".to_string())
+    pub fn init_logger(app_data: String,filename: String,append: bool) -> String {
+        logrs::init_logger(app_data,filename,append)
     }
 
     #[napi]
