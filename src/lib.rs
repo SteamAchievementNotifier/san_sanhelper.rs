@@ -340,6 +340,46 @@ pub fn get_app_info() -> Vec<AppInfo> {
 
 #[allow(unused_variables)]
 #[napi]
+pub fn remove_autostart_reg_keys(version: String) -> bool {
+    #[cfg(target_os="windows")] {
+        use winreg::{RegKey,enums::{HKEY_CURRENT_USER,KEY_SET_VALUE}};
+    
+        const CURRENT_VERSION: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion";
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let value = format!("Steam Achievement Notifier (V{})",version);
+        
+        let mut removed = false;
+    
+        for subkey in [
+            "Run",
+            "Explorer\\StartupApproved\\Run"
+        ] {
+            let path = format!("{}\\{}",CURRENT_VERSION,subkey);
+    
+            match hkcu.open_subkey_with_flags(&path,KEY_SET_VALUE) {
+                Ok(key) => match key.delete_value(&value) {
+                    Ok(_) => {
+                        if subkey == "Run" {
+                            removed = true;
+                        }
+                    },
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {},
+                    Err(err) => error!("Failed to delete value \"{}\" from \"{}\": {}",value,path,err),
+                },
+                Err(err) => error!("Failed to open \"{}\": {}",path,err)
+            }
+        }
+    
+        removed
+    }
+
+    #[cfg(not(target_os="windows"))] {
+        false
+    }
+}
+
+#[allow(unused_variables)]
+#[napi]
 pub fn press_keys_win32(keys: Vec<u16>) {
     #[cfg(target_os="windows")] {
         keypressrs::simulate_keypress_win32(keys);
